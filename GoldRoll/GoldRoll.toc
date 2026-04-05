@@ -1,0 +1,13 @@
+## Interface: 120001
+## Title: |cffFFD700GoldRoll|r
+## Notes: Friendly group gambling. Highest roll wins the difference!
+## Author:
+## Version: 1.0
+## SavedVariables: GoldRollDB
+
+libs.xml
+
+GoldRoll.lua
+core/Game.lua
+core/Events.lua
+core/GUI.lua
