@@ -1,0 +1,12 @@
+package-as: GoldRoll
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+ignore:
+  - old_working_example
+  - .github
+  - .gitignore
+  - .pkgmeta
+  - README.md
