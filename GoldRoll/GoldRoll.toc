@@ -5,8 +5,8 @@
 ## Version: @project-version@
 ## X-License: MIT
 ## X-Website: https://github.com/lyonsbp/wow-gambling-addon
-## X-Curse-Project-ID: YOUR_CURSE_PROJECT_ID
-## X-Wago-ID: YOUR_WAGO_ID
+## X-Curse-Project-ID: 1506040
+## X-Wago-ID: mKODn1Gx
 ## SavedVariables: GoldRollDB
 
 libs.xml
