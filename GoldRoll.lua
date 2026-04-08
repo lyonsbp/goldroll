@@ -16,8 +16,10 @@ function GoldRoll:OnInitialize()
             channel  = "PARTY",
             stats    = {},   -- [playerName] = net gold (positive = winnings)
             altLinks = {},   -- [altName]    = mainName
-            scale    = 1.0,
-            minimap  = { hide = false },
+            scale       = 1.0,
+            frameWidth  = 480,
+            frameHeight = 350,
+            minimap     = { hide = false },
         }
     }, true)
 

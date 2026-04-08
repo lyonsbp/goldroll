@@ -1,7 +1,11 @@
 -- GUI.lua: GoldRoll window — movable, draggable, live-updating
 
-local FRAME_W      = 360
-local FRAME_H      = 330
+local DEFAULT_W    = 480
+local DEFAULT_H    = 350
+local MIN_W        = 420
+local MIN_H        = 330
+local MAX_W        = 600
+local MAX_H        = 500
 local ROW_H        = 18
 local MAX_ROWS     = 16   -- pre-created rows (handles up to 40-man raids with scroll)
 local CONTENT_H    = ROW_H * MAX_ROWS
@@ -13,10 +17,15 @@ local playerRows   = {}
 
 function GoldRoll:BuildUI()
     -- Main frame
+    local fw = self.db.global.frameWidth  or DEFAULT_W
+    local fh = self.db.global.frameHeight or DEFAULT_H
+
     mainFrame = CreateFrame("Frame", "GoldRollFrame", UIParent, "BasicFrameTemplateWithInset")
-    mainFrame:SetSize(FRAME_W, FRAME_H)
+    mainFrame:SetSize(fw, fh)
     mainFrame:SetPoint("CENTER")
     mainFrame:SetMovable(true)
+    mainFrame:SetResizable(true)
+    mainFrame:SetResizeBounds(MIN_W, MIN_H, MAX_W, MAX_H)
     mainFrame:EnableMouse(true)
     mainFrame:RegisterForDrag("LeftButton")
     mainFrame:SetScript("OnDragStart", mainFrame.StartMoving)
@@ -25,6 +34,26 @@ function GoldRoll:BuildUI()
     mainFrame:SetScale(self.db.global.scale)
     mainFrame:SetFrameStrata("MEDIUM")
     mainFrame:Hide()
+
+    -- Resize grip (bottom-right corner)
+    local resizeBtn = CreateFrame("Button", nil, mainFrame)
+    resizeBtn:SetSize(16, 16)
+    resizeBtn:SetPoint("BOTTOMRIGHT", mainFrame, "BOTTOMRIGHT", -2, 2)
+    resizeBtn:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    resizeBtn:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    resizeBtn:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    resizeBtn:SetScript("OnMouseDown", function()
+        mainFrame:StartSizing("BOTTOMRIGHT")
+    end)
+    resizeBtn:SetScript("OnMouseUp", function()
+        mainFrame:StopMovingOrSizing()
+        GoldRoll.db.global.frameWidth  = math.floor(mainFrame:GetWidth())
+        GoldRoll.db.global.frameHeight = math.floor(mainFrame:GetHeight())
+    end)
+
+    mainFrame:SetScript("OnSizeChanged", function()
+        GoldRoll:UpdateLayout()
+    end)
 
     -- Title
     mainFrame.TitleText:SetText("|cffFFD700Gold|rRoll")
@@ -86,11 +115,12 @@ function GoldRoll:BuildUI()
     -- ── Separator ─────────────────────────────────────────────────────────────
     local sep1 = mainFrame:CreateTexture(nil, "ARTWORK")
     sep1:SetColorTexture(0.5, 0.5, 0.5, 0.6)
-    sep1:SetSize(FRAME_W - 26, 1)
+    sep1:SetSize(fw - 26, 1)
     sep1:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", 13, -56)
+    mainFrame.sep1 = sep1
 
     -- ── View tabs ─────────────────────────────────────────────────────────────
-    local tabW = math.floor((FRAME_W - 30) / 2)
+    local tabW = math.floor((fw - 30) / 2)
 
     local gameTabBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
     gameTabBtn:SetSize(tabW, 22)
@@ -133,12 +163,12 @@ function GoldRoll:BuildUI()
 
     local scrollFrame = CreateFrame("ScrollFrame", "GoldRollScrollFrame", mainFrame,
                                     "UIPanelScrollFrameTemplate")
-    scrollFrame:SetSize(FRAME_W - 44, listH)
+    scrollFrame:SetSize(fw - 44, listH)
     scrollFrame:SetPoint("TOPLEFT", hdrName, "BOTTOMLEFT", 0, -3)
     mainFrame.scrollFrame = scrollFrame
 
     local content = CreateFrame("Frame", nil, scrollFrame)
-    content:SetSize(FRAME_W - 44, CONTENT_H)
+    content:SetSize(fw - 44, CONTENT_H)
     scrollFrame:SetScrollChild(content)
     mainFrame.scrollContent = content
 
@@ -147,7 +177,7 @@ function GoldRoll:BuildUI()
         local row = {}
 
         local bg = content:CreateTexture(nil, "BACKGROUND")
-        bg:SetSize(FRAME_W - 44, ROW_H)
+        bg:SetSize(fw - 44, ROW_H)
         bg:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(i - 1) * ROW_H)
         if i % 2 == 0 then
             bg:SetColorTexture(0.14, 0.14, 0.14, 0.6)
@@ -184,7 +214,7 @@ function GoldRoll:BuildUI()
     local LB_TOTAL   = MAX_LB * 2 + 2   -- +2 for section header rows
 
     local lbPanel = CreateFrame("Frame", nil, mainFrame)
-    lbPanel:SetSize(FRAME_W - 26, listH + 20)
+    lbPanel:SetSize(fw - 26, listH + 20)
     lbPanel:SetPoint("TOPLEFT", gameTabBtn, "BOTTOMLEFT", 0, -4)
     lbPanel:Hide()
     mainFrame.lbPanel  = lbPanel
@@ -192,12 +222,14 @@ function GoldRoll:BuildUI()
 
     local lbScroll = CreateFrame("ScrollFrame", "GoldRollLBScroll", lbPanel,
                                  "UIPanelScrollFrameTemplate")
-    lbScroll:SetSize(FRAME_W - 44, listH + 20 - 30)
+    lbScroll:SetSize(fw - 44, listH + 20 - 30)
     lbScroll:SetPoint("TOPLEFT", lbPanel, "TOPLEFT", 0, 0)
+    mainFrame.lbScroll = lbScroll
 
     local lbContent = CreateFrame("Frame", nil, lbScroll)
-    lbContent:SetSize(FRAME_W - 44, LB_ROW_H * LB_TOTAL)
+    lbContent:SetSize(fw - 44, LB_ROW_H * LB_TOTAL)
     lbScroll:SetScrollChild(lbContent)
+    mainFrame.lbContent = lbContent
 
     local lbDropdown = CreateFrame("Frame", "GoldRollLBDropdown", lbPanel, "UIDropDownMenuTemplate")
     mainFrame.lbDropdown = lbDropdown
@@ -205,7 +237,7 @@ function GoldRoll:BuildUI()
     local lbRows = {}
     for i = 1, LB_TOTAL do
         local rowBtn = CreateFrame("Button", nil, lbContent)
-        rowBtn:SetSize(FRAME_W - 44, LB_ROW_H)
+        rowBtn:SetSize(fw - 44, LB_ROW_H)
         rowBtn:SetPoint("TOPLEFT", lbContent, "TOPLEFT", 0, -(i - 1) * LB_ROW_H)
         rowBtn:RegisterForClicks("RightButtonUp")
         rowBtn:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
@@ -258,13 +290,14 @@ function GoldRoll:BuildUI()
     -- ── Separator ─────────────────────────────────────────────────────────────
     local sep2 = mainFrame:CreateTexture(nil, "ARTWORK")
     sep2:SetColorTexture(0.5, 0.5, 0.5, 0.6)
-    sep2:SetSize(FRAME_W - 26, 1)
+    sep2:SetSize(fw - 26, 1)
     sep2:SetPoint("TOPLEFT", scrollFrame, "BOTTOMLEFT", 0, -6)
+    mainFrame.sep2 = sep2
 
     -- ── Status bar ────────────────────────────────────────────────────────────
     local statusFS = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     statusFS:SetPoint("TOPLEFT", sep2, "BOTTOMLEFT", 0, -4)
-    statusFS:SetWidth(FRAME_W - 26)
+    statusFS:SetWidth(fw - 26)
     statusFS:SetJustifyH("CENTER")
     statusFS:SetText("Idle — start a new game to begin.")
     mainFrame.statusFS = statusFS
@@ -272,12 +305,17 @@ function GoldRoll:BuildUI()
     -- ── Separator ─────────────────────────────────────────────────────────────
     local sep3 = mainFrame:CreateTexture(nil, "ARTWORK")
     sep3:SetColorTexture(0.5, 0.5, 0.5, 0.6)
-    sep3:SetSize(FRAME_W - 26, 1)
+    sep3:SetSize(fw - 26, 1)
     sep3:SetPoint("BOTTOM", mainFrame, "BOTTOM", 0, 44)
+    mainFrame.sep3 = sep3
 
     -- ── Action buttons ────────────────────────────────────────────────────────
+    local NUM_BTNS = 5
+    local btnGap   = 4
+    local btnW     = math.floor((fw - 20 - (NUM_BTNS - 1) * btnGap) / NUM_BTNS)
+
     local newBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
-    newBtn:SetSize(64, 24)
+    newBtn:SetSize(btnW, 24)
     newBtn:SetPoint("BOTTOMLEFT", mainFrame, "BOTTOMLEFT", 10, 10)
     newBtn:SetText("New Game")
     newBtn:SetScript("OnClick", function()
@@ -293,8 +331,8 @@ function GoldRoll:BuildUI()
     mainFrame.newBtn = newBtn
 
     local announceBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
-    announceBtn:SetSize(64, 24)
-    announceBtn:SetPoint("LEFT", newBtn, "RIGHT", 6, 0)
+    announceBtn:SetSize(btnW, 24)
+    announceBtn:SetPoint("LEFT", newBtn, "RIGHT", 4, 0)
     announceBtn:SetText("Announce")
     announceBtn:SetScript("OnClick", function()
         GoldRoll:AnnounceJoin()
@@ -309,8 +347,8 @@ function GoldRoll:BuildUI()
     mainFrame.announceBtn = announceBtn
 
     local rollBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
-    rollBtn:SetSize(64, 24)
-    rollBtn:SetPoint("LEFT", announceBtn, "RIGHT", 6, 0)
+    rollBtn:SetSize(btnW, 24)
+    rollBtn:SetPoint("LEFT", announceBtn, "RIGHT", 4, 0)
     rollBtn:SetText("Start Rolls")
     rollBtn:SetScript("OnClick", function()
         local state = GoldRoll.game.state
@@ -342,8 +380,8 @@ function GoldRoll:BuildUI()
     mainFrame.rollBtn = rollBtn
 
     local myRollBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
-    myRollBtn:SetSize(64, 24)
-    myRollBtn:SetPoint("LEFT", rollBtn, "RIGHT", 6, 0)
+    myRollBtn:SetSize(btnW, 24)
+    myRollBtn:SetPoint("LEFT", rollBtn, "RIGHT", 4, 0)
     myRollBtn:SetText("Roll!")
     myRollBtn:SetScript("OnClick", function()
         RandomRoll(1, GoldRoll.game.wager)
@@ -358,8 +396,8 @@ function GoldRoll:BuildUI()
     mainFrame.myRollBtn = myRollBtn
 
     local cancelBtn = CreateFrame("Button", nil, mainFrame, "UIPanelButtonTemplate")
-    cancelBtn:SetSize(64, 24)
-    cancelBtn:SetPoint("LEFT", myRollBtn, "RIGHT", 6, 0)
+    cancelBtn:SetSize(btnW, 24)
+    cancelBtn:SetPoint("LEFT", myRollBtn, "RIGHT", 4, 0)
     cancelBtn:SetText("Cancel")
     cancelBtn:SetScript("OnClick", function()
         GoldRoll:CancelGame()
@@ -661,6 +699,66 @@ function GoldRoll:RefreshUI()
             row.resultFS:SetText("")
         end
     end
+end
+
+-- ── Dynamic layout on resize ──────────────────────────────────────────────────
+
+function GoldRoll:UpdateLayout()
+    if not mainFrame then return end
+
+    local w = mainFrame:GetWidth()
+    local h = mainFrame:GetHeight()
+    local innerW = w - 26   -- padding from frame edges
+    local scrollW = w - 44  -- scroll area (extra for scrollbar)
+
+    -- Separators
+    mainFrame.sep1:SetWidth(innerW)
+    mainFrame.sep2:SetWidth(innerW)
+    mainFrame.sep3:SetWidth(innerW)
+
+    -- Tabs
+    local tabW = math.floor((w - 30) / 2)
+    mainFrame.gameTabBtn:SetWidth(tabW)
+    mainFrame.lbTabBtn:SetWidth(tabW)
+
+    -- Game view columns: name gets the extra width, roll & result stay fixed
+    local nameW = scrollW - 60 - 80 - 4  -- subtract Roll + Result + padding
+    mainFrame.hdrName:SetWidth(nameW)
+
+    -- Game scroll area
+    mainFrame.scrollFrame:SetWidth(scrollW)
+    mainFrame.scrollContent:SetWidth(scrollW)
+
+    -- Player rows
+    for _, row in ipairs(playerRows) do
+        row.bg:SetWidth(scrollW)
+        row.nameFS:SetWidth(nameW)
+    end
+
+    -- Leaderboard panel
+    mainFrame.lbPanel:SetWidth(innerW)
+    mainFrame.lbScroll:SetWidth(scrollW)
+    mainFrame.lbContent:SetWidth(scrollW)
+
+    -- Leaderboard rows: name column gets the extra width
+    local lbNameW = scrollW - 24 - 100 - 6  -- subtract rank + amount + gaps
+    for _, row in ipairs(mainFrame.lbRows) do
+        row.btn:SetWidth(scrollW)
+        row.nameFS:SetWidth(lbNameW)
+    end
+
+    -- Status text
+    mainFrame.statusFS:SetWidth(innerW)
+
+    -- Action buttons: evenly divide
+    local NUM_BTNS = 5
+    local btnGap   = 4
+    local btnW     = math.floor((w - 20 - (NUM_BTNS - 1) * btnGap) / NUM_BTNS)
+    mainFrame.newBtn:SetWidth(btnW)
+    mainFrame.announceBtn:SetWidth(btnW)
+    mainFrame.rollBtn:SetWidth(btnW)
+    mainFrame.myRollBtn:SetWidth(btnW)
+    mainFrame.cancelBtn:SetWidth(btnW)
 end
 
 -- ── Leaderboard right-click menu ──────────────────────────────────────────────
