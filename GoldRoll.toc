@@ -14,3 +14,4 @@ libs.xml
 GoldRoll.lua
 core/Game.lua
 core/Events.lua
+core/GUI.lua
