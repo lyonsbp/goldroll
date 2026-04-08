@@ -199,29 +199,43 @@ function GoldRoll:BuildUI()
     lbContent:SetSize(FRAME_W - 44, LB_ROW_H * LB_TOTAL)
     lbScroll:SetScrollChild(lbContent)
 
+    local lbDropdown = CreateFrame("Frame", "GoldRollLBDropdown", lbPanel, "UIDropDownMenuTemplate")
+    mainFrame.lbDropdown = lbDropdown
+
     local lbRows = {}
     for i = 1, LB_TOTAL do
-        local rowBg = lbContent:CreateTexture(nil, "BACKGROUND")
-        rowBg:SetSize(FRAME_W - 44, LB_ROW_H)
-        rowBg:SetPoint("TOPLEFT", lbContent, "TOPLEFT", 0, -(i - 1) * LB_ROW_H)
+        local rowBtn = CreateFrame("Button", nil, lbContent)
+        rowBtn:SetSize(FRAME_W - 44, LB_ROW_H)
+        rowBtn:SetPoint("TOPLEFT", lbContent, "TOPLEFT", 0, -(i - 1) * LB_ROW_H)
+        rowBtn:RegisterForClicks("RightButtonUp")
+        rowBtn:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+        rowBtn:SetScript("OnClick", function(self, button)
+            if button == "RightButton" and self.playerName then
+                GoldRoll:ShowLeaderboardMenu(self)
+            end
+        end)
+        rowBtn:Hide()
+
+        local rowBg = rowBtn:CreateTexture(nil, "BACKGROUND")
+        rowBg:SetAllPoints(rowBtn)
         rowBg:Hide()
 
-        local rankFS = lbContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        rankFS:SetPoint("LEFT", rowBg, "LEFT", 4, 0)
+        local rankFS = rowBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        rankFS:SetPoint("LEFT", rowBtn, "LEFT", 4, 0)
         rankFS:SetWidth(24)
         rankFS:SetJustifyH("LEFT")
 
-        local nameFS = lbContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local nameFS = rowBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         nameFS:SetPoint("LEFT", rankFS, "RIGHT", 2, 0)
         nameFS:SetWidth(180)
         nameFS:SetJustifyH("LEFT")
 
-        local amtFS = lbContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local amtFS = rowBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         amtFS:SetPoint("LEFT", nameFS, "RIGHT", 0, 0)
         amtFS:SetWidth(100)
         amtFS:SetJustifyH("RIGHT")
 
-        lbRows[i] = { bg = rowBg, rankFS = rankFS, nameFS = nameFS, amtFS = amtFS }
+        lbRows[i] = { btn = rowBtn, bg = rowBg, rankFS = rankFS, nameFS = nameFS, amtFS = amtFS }
     end
     mainFrame.lbRows = lbRows
 
@@ -421,9 +435,9 @@ function GoldRoll:RefreshLeaderboard()
             label = name .. " |cff888888(+" .. #alts .. " alt" .. (#alts > 1 and "s" or "") .. ")|r"
         end
         if amount > 0 then
-            table.insert(winners, { label = label, amount = amount })
+            table.insert(winners, { label = label, name = name, amount = amount })
         elseif amount < 0 then
-            table.insert(losers,  { label = label, amount = amount })
+            table.insert(losers,  { label = label, name = name, amount = amount })
         end
     end
 
@@ -437,6 +451,9 @@ function GoldRoll:RefreshLeaderboard()
     local function writeSection(label, entries, isWinner)
         local hdrRow = lbRows[rowIdx]
         if not hdrRow then return end
+        hdrRow.btn.playerName = nil
+        hdrRow.btn:EnableMouse(false)
+        hdrRow.btn:Show()
         hdrRow.bg:Hide()
         hdrRow.rankFS:SetText("")
         hdrRow.nameFS:SetText(label)
@@ -447,6 +464,9 @@ function GoldRoll:RefreshLeaderboard()
         if #entries == 0 then
             local row = lbRows[rowIdx]
             if row then
+                row.btn.playerName = nil
+                row.btn:EnableMouse(false)
+                row.btn:Show()
                 row.bg:Show()
                 row.rankFS:SetText("")
                 row.nameFS:SetText("  None yet")
@@ -462,6 +482,9 @@ function GoldRoll:RefreshLeaderboard()
             if not row then return end
             local e = entries[i]
 
+            row.btn.playerName = e.name
+            row.btn:EnableMouse(true)
+            row.btn:Show()
             row.bg:Show()
             if i % 2 == 0 then
                 row.bg:SetColorTexture(0.14, 0.14, 0.14, 0.6)
@@ -493,6 +516,8 @@ function GoldRoll:RefreshLeaderboard()
     -- Clear any unused rows
     for i = rowIdx, #lbRows do
         local row = lbRows[i]
+        row.btn.playerName = nil
+        row.btn:Hide()
         row.bg:Hide()
         row.rankFS:SetText("")
         row.nameFS:SetText("")
@@ -636,4 +661,77 @@ function GoldRoll:RefreshUI()
             row.resultFS:SetText("")
         end
     end
+end
+
+-- ── Leaderboard right-click menu ──────────────────────────────────────────────
+
+function GoldRoll:ShowLeaderboardMenu(rowBtn)
+    local name = rowBtn.playerName
+    if not name then return end
+
+    local merged = self:GetMergedStats()
+
+    -- Other mains available as link targets
+    local otherNames = {}
+    for n in pairs(merged) do
+        if n ~= name then table.insert(otherNames, n) end
+    end
+    table.sort(otherNames)
+
+    -- Alts currently linked to this main
+    local linkedAlts = {}
+    for alt, main in pairs(self.db.global.altLinks) do
+        if main == name then table.insert(linkedAlts, alt) end
+    end
+    table.sort(linkedAlts)
+
+    local menu = {
+        { text = name, isTitle = true, notCheckable = true },
+    }
+
+    -- "Link as alt of >" submenu
+    if #otherNames > 0 then
+        local linkSub = {}
+        for _, otherName in ipairs(otherNames) do
+            table.insert(linkSub, {
+                text = otherName,
+                notCheckable = true,
+                func = function()
+                    GoldRoll:LinkAlt(otherName, name)
+                    CloseDropDownMenus()
+                end,
+            })
+        end
+        table.insert(menu, {
+            text = "Link as alt of",
+            notCheckable = true,
+            hasArrow = true,
+            menuList = linkSub,
+        })
+    end
+
+    -- "Unlink alt >" submenu if this main has linked alts
+    if #linkedAlts > 0 then
+        local unlinkSub = {}
+        for _, alt in ipairs(linkedAlts) do
+            table.insert(unlinkSub, {
+                text = alt,
+                notCheckable = true,
+                func = function()
+                    GoldRoll:UnlinkAlt(alt)
+                    CloseDropDownMenus()
+                end,
+            })
+        end
+        table.insert(menu, {
+            text = "Unlink alt",
+            notCheckable = true,
+            hasArrow = true,
+            menuList = unlinkSub,
+        })
+    end
+
+    table.insert(menu, { text = "Cancel", notCheckable = true, func = function() CloseDropDownMenus() end })
+
+    EasyMenu(menu, mainFrame.lbDropdown, rowBtn, 0, 0, "MENU")
 end

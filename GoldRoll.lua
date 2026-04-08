@@ -17,6 +17,7 @@ function GoldRoll:OnInitialize()
             stats    = {},   -- [playerName] = net gold (positive = winnings)
             altLinks = {},   -- [altName]    = mainName
             scale    = 1.0,
+            minimap  = { hide = false },
         }
     }, true)
 
@@ -41,6 +42,26 @@ function GoldRoll:OnInitialize()
     }
 
     self:BuildUI()
+
+    -- Minimap button via LibDataBroker + LibDBIcon
+    local ldb = LibStub("LibDataBroker-1.1")
+    local icon = LibStub("LibDBIcon-1.0")
+
+    local launcher = ldb:NewDataObject("GoldRoll", {
+        type  = "launcher",
+        icon  = "Interface\\AddOns\\GoldRoll\\goldroll-logo",
+        label = "GoldRoll",
+        OnClick = function(_, button)
+            if button == "LeftButton" then
+                GoldRoll:ToggleUI()
+            end
+        end,
+        OnTooltipShow = function(tt)
+            tt:AddLine("|cffFFD700GoldRoll|r")
+            tt:AddLine("Click to toggle the GoldRoll window.", 0.8, 0.8, 0.8)
+        end,
+    })
+    icon:Register("GoldRoll", launcher, self.db.global.minimap)
 
     self:Announce("Loaded! Type /gr to open.")
 end
