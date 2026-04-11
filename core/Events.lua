@@ -90,10 +90,11 @@ function GoldRoll:OnAddonMessage(_, prefix, message, _, senderFull)
 
     elseif cmd == "NEW_GAME" then
         -- Non-host clients initialize their game state
-        self.game.state   = GoldRoll.STATES.REGISTERING
-        self.game.isHost  = false
-        self.game.players = {}
-        self.game.result  = nil
+        self.game.state       = GoldRoll.STATES.REGISTERING
+        self.game.isHost      = false
+        self.game.players     = {}
+        self.game.result      = nil
+        self.game.lastPlayers = nil
         self:RegisterJoinEvents()
         self:Announce(string.format(
             "A %sg gambling game has started! Type 1 in chat to join.",
@@ -146,6 +147,7 @@ function GoldRoll:OnAddonMessage(_, prefix, message, _, senderFull)
     elseif cmd == "CANCEL" then
         self:UnregisterJoinEvents()
         self:UnregisterEvent("CHAT_MSG_SYSTEM")
+        self.game.lastPlayers = nil
         self:ResetGame()
         self:Announce("The game was cancelled by the host.")
         self:RefreshUI()
@@ -153,6 +155,13 @@ function GoldRoll:OnAddonMessage(_, prefix, message, _, senderFull)
     elseif cmd == "GAME_OVER" then
         self:UnregisterJoinEvents()
         self:UnregisterEvent("CHAT_MSG_SYSTEM")
+        -- Snapshot the final player list so the Game tab keeps showing
+        -- results until a new game is started
+        local snapshot = {}
+        for _, p in ipairs(self.game.players) do
+            table.insert(snapshot, { name = p.name, roll = p.roll })
+        end
+        self.game.lastPlayers = snapshot
         self:ResetGame()
         self:RefreshUI()
     end

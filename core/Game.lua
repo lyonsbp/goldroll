@@ -8,12 +8,13 @@ function GoldRoll:StartGame()
         return
     end
 
-    self.game.state   = GoldRoll.STATES.REGISTERING
-    self.game.isHost  = true
-    self.game.wager   = self.db.global.wager
-    self.game.channel = self.db.global.channel
-    self.game.players = {}
-    self.game.result  = nil
+    self.game.state       = GoldRoll.STATES.REGISTERING
+    self.game.isHost      = true
+    self.game.wager       = self.db.global.wager
+    self.game.channel     = self.db.global.channel
+    self.game.players     = {}
+    self.game.result      = nil
+    self.game.lastPlayers = nil
 
     -- Auto-register the host
     self:AddPlayer(self.game.playerName)
@@ -95,6 +96,7 @@ function GoldRoll:CancelGame()
         self:Broadcast("CANCEL")
     end
 
+    self.game.lastPlayers = nil
     self:ResetGame()
     self:RefreshUI()
 end
@@ -289,6 +291,14 @@ function GoldRoll:CloseGame(result)
 
     -- Broadcast game-over so non-host clients reset
     self:Broadcast("GAME_OVER")
+
+    -- Snapshot the final player list so the Game tab keeps showing results
+    -- until a new game is started
+    local snapshot = {}
+    for _, p in ipairs(self.game.players) do
+        table.insert(snapshot, { name = p.name, roll = p.roll })
+    end
+    self.game.lastPlayers = snapshot
 
     self:ResetGame()
     self:RefreshUI()

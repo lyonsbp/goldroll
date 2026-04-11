@@ -231,9 +231,6 @@ function GoldRoll:BuildUI()
     lbScroll:SetScrollChild(lbContent)
     mainFrame.lbContent = lbContent
 
-    local lbDropdown = CreateFrame("Frame", "GoldRollLBDropdown", lbPanel, "UIDropDownMenuTemplate")
-    mainFrame.lbDropdown = lbDropdown
-
     local lbRows = {}
     for i = 1, LB_TOTAL do
         local rowBtn = CreateFrame("Button", nil, lbContent)
@@ -573,10 +570,45 @@ function GoldRoll:RefreshUI()
     local players = self.game.players
     local wager   = self.game.wager
 
+    -- When idle with a saved snapshot from the previous game, keep showing
+    -- those rows until a new game is started.
+    local displayPlayers = players
+    local showingLastGame = false
+    if state == GoldRoll.STATES.IDLE
+        and self.game.lastPlayers
+        and #self.game.lastPlayers > 0
+    then
+        displayPlayers  = self.game.lastPlayers
+        showingLastGame = true
+    end
+
     -- Status text
     if state == GoldRoll.STATES.IDLE then
-        mainFrame.statusFS:SetText("Idle — start a new game to begin.")
-        mainFrame.statusFS:SetTextColor(0.7, 0.7, 0.7)
+        if showingLastGame then
+            -- Derive winner and prize from the snapshot for the status line
+            local hi, lo = -1, math.huge
+            local winnerName
+            for _, p in ipairs(displayPlayers) do
+                if p.roll then
+                    if p.roll > hi then hi = p.roll; winnerName = p.name end
+                    if p.roll < lo then lo = p.roll end
+                end
+            end
+            local lastPrize = (hi > lo) and (hi - lo) or 0
+            if winnerName and lastPrize > 0 then
+                mainFrame.statusFS:SetText(string.format(
+                    "Last game: %s won %sg — start a new game to play again.",
+                    winnerName, self:FormatGold(lastPrize)
+                ))
+                mainFrame.statusFS:SetTextColor(1, 0.84, 0)
+            else
+                mainFrame.statusFS:SetText("Last game: complete tie — start a new game to play again.")
+                mainFrame.statusFS:SetTextColor(0.7, 0.7, 0.7)
+            end
+        else
+            mainFrame.statusFS:SetText("Idle — start a new game to begin.")
+            mainFrame.statusFS:SetTextColor(0.7, 0.7, 0.7)
+        end
 
     elseif state == GoldRoll.STATES.REGISTERING then
         mainFrame.statusFS:SetText(string.format(
@@ -633,7 +665,7 @@ function GoldRoll:RefreshUI()
 
     -- ── Determine high/low rolls for colour coding ────────────────────────────
     local highRoll, lowRoll = -1, math.huge
-    for _, p in ipairs(players) do
+    for _, p in ipairs(displayPlayers) do
         if p.roll then
             if p.roll > highRoll then highRoll = p.roll end
             if p.roll < lowRoll  then lowRoll  = p.roll end
@@ -648,7 +680,7 @@ function GoldRoll:RefreshUI()
 
     -- ── Player rows ───────────────────────────────────────────────────────────
     for i, row in ipairs(playerRows) do
-        local p = players[i]
+        local p = displayPlayers[i]
         if p then
             row.bg:Show()
 
@@ -783,53 +815,30 @@ function GoldRoll:ShowLeaderboardMenu(rowBtn)
     end
     table.sort(linkedAlts)
 
-    local menu = {
-        { text = name, isTitle = true, notCheckable = true },
-    }
+    if not MenuUtil or not MenuUtil.CreateContextMenu then
+        self:Announce("Context menu API unavailable on this client.")
+        return
+    end
 
-    -- "Link as alt of >" submenu
-    if #otherNames > 0 then
-        local linkSub = {}
-        for _, otherName in ipairs(otherNames) do
-            table.insert(linkSub, {
-                text = otherName,
-                notCheckable = true,
-                func = function()
+    MenuUtil.CreateContextMenu(rowBtn, function(_, rootDescription)
+        rootDescription:CreateTitle(name)
+
+        if #otherNames > 0 then
+            local linkSub = rootDescription:CreateButton("Link as alt of")
+            for _, otherName in ipairs(otherNames) do
+                linkSub:CreateButton(otherName, function()
                     GoldRoll:LinkAlt(otherName, name)
-                    CloseDropDownMenus()
-                end,
-            })
+                end)
+            end
         end
-        table.insert(menu, {
-            text = "Link as alt of",
-            notCheckable = true,
-            hasArrow = true,
-            menuList = linkSub,
-        })
-    end
 
-    -- "Unlink alt >" submenu if this main has linked alts
-    if #linkedAlts > 0 then
-        local unlinkSub = {}
-        for _, alt in ipairs(linkedAlts) do
-            table.insert(unlinkSub, {
-                text = alt,
-                notCheckable = true,
-                func = function()
+        if #linkedAlts > 0 then
+            local unlinkSub = rootDescription:CreateButton("Unlink alt")
+            for _, alt in ipairs(linkedAlts) do
+                unlinkSub:CreateButton(alt, function()
                     GoldRoll:UnlinkAlt(alt)
-                    CloseDropDownMenus()
-                end,
-            })
+                end)
+            end
         end
-        table.insert(menu, {
-            text = "Unlink alt",
-            notCheckable = true,
-            hasArrow = true,
-            menuList = unlinkSub,
-        })
-    end
-
-    table.insert(menu, { text = "Cancel", notCheckable = true, func = function() CloseDropDownMenus() end })
-
-    EasyMenu(menu, mainFrame.lbDropdown, rowBtn, 0, 0, "MENU")
+    end)
 end
