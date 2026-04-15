@@ -7,6 +7,26 @@ GoldRoll.STATES   = { IDLE = "IDLE", REGISTERING = "REGISTERING", ROLLING = "ROL
 GoldRoll.CHANNELS = { "PARTY", "RAID", "GUILD" }
 GoldRoll.PREFIX   = "GoldRoll"
 
+-- Channels available for the Leaderboard Announce feature (/gr announce).
+-- These are distinct from GoldRoll.CHANNELS (which governs game coordination)
+-- because users may want to brag in SAY/YELL/GUILD while running games in PARTY.
+GoldRoll.ANNOUNCE_CHANNELS = {
+    { key = "SAY",           label = "Say"      },
+    { key = "YELL",          label = "Yell"     },
+    { key = "PARTY",         label = "Party"    },
+    { key = "RAID",          label = "Raid"     },
+    { key = "INSTANCE_CHAT", label = "Instance" },
+    { key = "GUILD",         label = "Guild"    },
+}
+
+GoldRoll.ANNOUNCE_SCOPES = {
+    { key = "FULL",     label = "Full leaderboard"   },
+    { key = "TOP10",    label = "Top 10"             },
+    { key = "TOP5",     label = "Top 5"              },
+    { key = "TOPBOT10", label = "Top 10 & Bottom 10" },
+    { key = "TOPBOT5",  label = "Top 5 & Bottom 5"   },
+}
+
 -- ── Initialization ────────────────────────────────────────────────────────────
 
 function GoldRoll:OnInitialize()
@@ -20,6 +40,10 @@ function GoldRoll:OnInitialize()
             frameWidth  = 480,
             frameHeight = 350,
             minimap     = { hide = false },
+            announce = {
+                channel = "PARTY",   -- SAY | YELL | PARTY | RAID | INSTANCE_CHAT | GUILD
+                scope   = "TOP10",   -- FULL | TOP10 | TOP5 | TOPBOT10 | TOPBOT5
+            },
         }
     }, true)
 
@@ -120,11 +144,23 @@ function GoldRoll:SlashHandler(input)
         end
     elseif cmd == "links" then
         self:ListLinks()
+    elseif cmd == "announce" then
+        -- /gr announce                   → use saved scope + channel
+        -- /gr announce <scope>           → override scope, use saved channel
+        -- /gr announce <scope> <channel> → override both (one-shot; not persisted)
+        local scopeArg, chanArg = strsplit(" ", rest, 2)
+        scopeArg = strtrim(scopeArg or "")
+        chanArg  = strtrim(chanArg  or "")
+        self:AnnounceLeaderboard(
+            scopeArg ~= "" and scopeArg:upper() or nil,
+            chanArg  ~= "" and chanArg:upper()  or nil
+        )
     else
         self:Announce("Commands:")
         self:Announce("  /gr show            - Toggle window")
         self:Announce("  /gr stats           - Top 5 leaderboard")
         self:Announce("  /gr allstats        - Full leaderboard")
+        self:Announce("  /gr announce [scope] [channel] - Post leaderboard to chat")
         self:Announce("  /gr link <alt> [main] - Link alt to main (default: current char)")
         self:Announce("  /gr unlink <alt>    - Remove alt link")
         self:Announce("  /gr links           - List all alt links")
@@ -239,6 +275,155 @@ function GoldRoll:PrintStats(showAll)
         local e    = list[i]
         local sign = e.amount >= 0 and "+" or ""
         self:Announce(string.format("%d. %s: %s%sg", i, e.name, sign, self:FormatGold(e.amount)))
+    end
+end
+
+-- ── Leaderboard announce ─────────────────────────────────────────────────────
+
+-- Look up a scope/channel entry by key in one of the ANNOUNCE_* tables.
+local function findByKey(list, key)
+    for _, entry in ipairs(list) do
+        if entry.key == key then return entry end
+    end
+    return nil
+end
+
+-- Friendly label for a channel key (for tooltips / local echoes).
+function GoldRoll:AnnounceChannelLabel(key)
+    local entry = findByKey(GoldRoll.ANNOUNCE_CHANNELS, key)
+    return entry and entry.label or key
+end
+
+function GoldRoll:AnnounceScopeLabel(key)
+    local entry = findByKey(GoldRoll.ANNOUNCE_SCOPES, key)
+    return entry and entry.label or key
+end
+
+-- Build the sorted winners/losers lists used by the announce/leaderboard views.
+-- Returns { winners = { {name, label, amount}, ... }, losers = { ... } }.
+-- Labels include a plain-text "(+N alts)" suffix when applicable — no color codes,
+-- since this output may be sent to chat (WoW renders escape codes literally there).
+function GoldRoll:BuildAnnounceLists()
+    local merged   = self:GetMergedStats()
+    local altLinks = self.db.global.altLinks
+
+    local altsByMain = {}
+    for alt, main in pairs(altLinks) do
+        altsByMain[main] = altsByMain[main] or {}
+        table.insert(altsByMain[main], alt)
+    end
+
+    local winners, losers = {}, {}
+    for name, amount in pairs(merged) do
+        local alts  = altsByMain[name]
+        local label = name
+        if alts and #alts > 0 then
+            label = string.format("%s (+%d alt%s)", name, #alts, #alts > 1 and "s" or "")
+        end
+        if amount > 0 then
+            table.insert(winners, { name = name, label = label, amount = amount })
+        elseif amount < 0 then
+            table.insert(losers,  { name = name, label = label, amount = amount })
+        end
+    end
+
+    table.sort(winners, function(a, b) return a.amount > b.amount end)
+    table.sort(losers,  function(a, b) return a.amount < b.amount end)
+    return winners, losers
+end
+
+-- Format one leaderboard row for chat output: "1. Bob (+1 alt): +12,345g".
+local function formatAnnounceRow(rank, entry)
+    local sign = entry.amount >= 0 and "+" or "-"
+    return string.format("%d. %s: %s%sg",
+        rank, entry.label, sign, GoldRoll:FormatGold(math.abs(entry.amount)))
+end
+
+-- Returns true if the player is in a valid state to post to the given channel.
+-- Second return is a human message describing why not, when false.
+local function canSendToChannel(channel)
+    if channel == "PARTY" then
+        if not IsInGroup() then
+            return false, "Can't announce to Party — not in a group."
+        end
+    elseif channel == "RAID" then
+        if not IsInRaid() then
+            return false, "Can't announce to Raid — not in a raid."
+        end
+    elseif channel == "GUILD" then
+        if not IsInGuild() then
+            return false, "Can't announce to Guild — not in a guild."
+        end
+    elseif channel == "INSTANCE_CHAT" then
+        if not IsInInstance() then
+            return false, "Can't announce to Instance — not in an instance."
+        end
+    end
+    return true
+end
+
+-- Announce the leaderboard to chat. `scope` and `channel` default to the saved
+-- settings when omitted. Both arguments are uppercase keys from ANNOUNCE_*.
+function GoldRoll:AnnounceLeaderboard(scope, channel)
+    local saved = self.db.global.announce
+    scope   = scope   or saved.scope
+    channel = channel or saved.channel
+
+    if not findByKey(GoldRoll.ANNOUNCE_SCOPES, scope) then
+        self:Announce("Unknown scope: " .. tostring(scope))
+        self:Announce("Valid scopes: FULL, TOP10, TOP5, TOPBOT10, TOPBOT5")
+        return
+    end
+    if not findByKey(GoldRoll.ANNOUNCE_CHANNELS, channel) then
+        self:Announce("Unknown channel: " .. tostring(channel))
+        self:Announce("Valid channels: SAY, YELL, PARTY, RAID, INSTANCE_CHAT, GUILD")
+        return
+    end
+
+    local winners, losers = self:BuildAnnounceLists()
+    if #winners == 0 and #losers == 0 then
+        self:Announce("No stats to announce yet.")
+        return
+    end
+
+    local ok, reason = canSendToChannel(channel)
+    if not ok then
+        self:Announce(reason)
+        return
+    end
+
+    -- Decide header + how many of each side to post.
+    local header, winnerLimit, loserLimit
+    if scope == "FULL" then
+        header, winnerLimit, loserLimit = "GoldRoll Leaderboard", #winners, #losers
+    elseif scope == "TOP10" then
+        header, winnerLimit, loserLimit = "GoldRoll Top 10", math.min(10, #winners), 0
+    elseif scope == "TOP5" then
+        header, winnerLimit, loserLimit = "GoldRoll Top 5",  math.min(5,  #winners), 0
+    elseif scope == "TOPBOT10" then
+        header, winnerLimit, loserLimit = "GoldRoll Top/Bottom 10",
+            math.min(10, #winners), math.min(10, #losers)
+    elseif scope == "TOPBOT5" then
+        header, winnerLimit, loserLimit = "GoldRoll Top/Bottom 5",
+            math.min(5,  #winners), math.min(5,  #losers)
+    end
+
+    local lines = { header }
+    if winnerLimit > 0 then
+        table.insert(lines, "-- Winners --")
+        for i = 1, winnerLimit do
+            table.insert(lines, formatAnnounceRow(i, winners[i]))
+        end
+    end
+    if loserLimit > 0 then
+        table.insert(lines, "-- Losers --")
+        for i = 1, loserLimit do
+            table.insert(lines, formatAnnounceRow(i, losers[i]))
+        end
+    end
+
+    for _, line in ipairs(lines) do
+        SendChatMessage(line, channel)
     end
 end
 

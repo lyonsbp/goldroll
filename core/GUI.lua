@@ -284,6 +284,27 @@ function GoldRoll:BuildUI()
     end)
     resetBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
+    -- Announce leaderboard button (left of Reset Stats)
+    local lbAnnounceBtn = CreateFrame("Button", nil, lbPanel, "UIPanelButtonTemplate")
+    lbAnnounceBtn:SetSize(100, 22)
+    lbAnnounceBtn:SetPoint("RIGHT", resetBtn, "LEFT", -4, 0)
+    lbAnnounceBtn:SetText("Announce")
+    lbAnnounceBtn:SetScript("OnClick", function(btn)
+        GoldRoll:ShowAnnounceMenu(btn)
+    end)
+    lbAnnounceBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Announce Leaderboard", 1, 1, 1)
+        local a = GoldRoll.db.global.announce
+        GameTooltip:AddLine(string.format("Post to %s — %s",
+            GoldRoll:AnnounceChannelLabel(a.channel),
+            GoldRoll:AnnounceScopeLabel(a.scope)), 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Click to configure or announce now.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end)
+    lbAnnounceBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    mainFrame.lbAnnounceBtn = lbAnnounceBtn
+
     -- ── Separator ─────────────────────────────────────────────────────────────
     local sep2 = mainFrame:CreateTexture(nil, "ARTWORK")
     sep2:SetColorTexture(0.5, 0.5, 0.5, 0.6)
@@ -839,6 +860,42 @@ function GoldRoll:ShowLeaderboardMenu(rowBtn)
                     GoldRoll:UnlinkAlt(alt)
                 end)
             end
+        end
+    end)
+end
+
+-- ── Announce leaderboard menu ────────────────────────────────────────────────
+
+function GoldRoll:ShowAnnounceMenu(anchor)
+    if not MenuUtil or not MenuUtil.CreateContextMenu then
+        -- Fallback: client lacks the modern menu API. Just announce with saved
+        -- settings so the button still does something useful.
+        self:Announce("Context menu API unavailable — announcing with saved settings.")
+        self:AnnounceLeaderboard()
+        return
+    end
+
+    MenuUtil.CreateContextMenu(anchor, function(_, root)
+        root:CreateTitle("GoldRoll Announce")
+
+        root:CreateButton("Announce Now", function()
+            GoldRoll:AnnounceLeaderboard()
+        end)
+
+        local channelSub = root:CreateButton("Channel")
+        for _, entry in ipairs(GoldRoll.ANNOUNCE_CHANNELS) do
+            local key, label = entry.key, entry.label
+            channelSub:CreateRadio(label,
+                function() return GoldRoll.db.global.announce.channel == key end,
+                function() GoldRoll.db.global.announce.channel = key end)
+        end
+
+        local scopeSub = root:CreateButton("Scope")
+        for _, entry in ipairs(GoldRoll.ANNOUNCE_SCOPES) do
+            local key, label = entry.key, entry.label
+            scopeSub:CreateRadio(label,
+                function() return GoldRoll.db.global.announce.scope == key end,
+                function() GoldRoll.db.global.announce.scope = key end)
         end
     end)
 end
